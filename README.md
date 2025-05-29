@@ -7,8 +7,10 @@ Learn-then-optimize (LTO) approach is simulated to apply in Cainiao Station in C
 2. 算法解释
 
 3. 代码解释
-3.1 config.py: 存放所有的“设置参数”，
-3.2 
+3.1 config.py: this module contains all configurable parameters for the simulation, including shelf configurations, parcel generation parameters, and simulation settings.
+   这个部分的设置应该基于一定的现实考察，所以需要更多的数据支持
+3.2 data_structures.py:
+   
 5. 结果解释
 
 6. 结果优化
