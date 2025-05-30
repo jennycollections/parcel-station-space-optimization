@@ -115,7 +115,7 @@ Learn-then-optimize (LTO) approach is simulated to apply in Cainiao Station in C
 
    ### LEARNING MODULE PARAMETERS
    
-   #### Pickup Probability (`predicted_pickup_probability`)
+   #### Pickup Probability (`predicted_pickup_probability`) ?
 
    定义: 包裹在未来特定时间内被取走的概率
 
@@ -173,19 +173,19 @@ based on features like arrival time, parcel size, and time period.
 
    3.4 optimization_module.py: it uses the predicted pickup probabilities from the learning module to make intelligent parcel-to-shelf assignment decisions.
 
-   #### 这里我忽然想到一个问题就是国内的货架摆放好像是基于产品种类（可能和运输过程的货物摆放有关系，卸货过程按照货物原有的编号就更好找），如果我们现在按照产品被取走的概率摆放货物，是否会和原有编号冲突，给快递员带来更多的工作量。所以，我觉着应该进一步弄清楚原来的编号的摆放原则。
+   #### 这里我忽然想到一个问题就是国内的货架摆放好像是基于产品种类（可能和运输过程的货物摆放有关系），如果我们现在按照产品被取走的概率摆放货物，可能给快递员带来更多的工作量。所以，我觉着应该进一步弄清楚原来的快递摆放规则。
 
    3.5 simulation_engine.py: this module is to collect data by generating parcel arrivals over time, using the learning module to predict pickup probabilities, using the optimization module to assign parcels to shelves.
 
    3.6 main.py: this module utilized the data collected from the simulation_engine.py to demonstrate the "Learn-then-Optimize" workflow for parcel station management.
   
-5. 结果解释
+4. 结果解释
 ### Key Metrics
 
 - **LTO Alignment Score**: How well the system assigns high-probability parcels to premium shelves
 - **Average Assignment Cost**: Overall cost based on the objective function
 - **Shelf Utilization**: How efficiently different shelf types are used
-- **Premium Assignment Ratio**: Percentage of parcels assigned to premium shelves
+- **Premium Assignment Ration**: Percentage of parcels assigned to premium shelves
 
 ### Sample Output
 
@@ -204,7 +204,7 @@ Low-prob → Standard Rate: 78.4%
 Overall LTO Alignment: 83.8%
 ```
 
-6. 结果优化
+5. 结果优化
 
-7. Reference
+6. Reference
 Barnhart, C., Jacquillat, A., & Schmid, A. (2024). Robotic warehousing operations: a learn-then-optimize approach to large-scale neighborhood search. INFORMS Journal on Optimization.
