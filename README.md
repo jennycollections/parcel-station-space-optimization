@@ -204,6 +204,169 @@ Low-prob → Standard Rate: 78.4%
 Overall LTO Alignment: 83.8%
 ```
 
+### 发现的问题与改进方向
+
+#### 问题1: 相同成本货架的处理机制
+
+**问题描述**:
+当多个货架的总成本 `total_cost = basic_cost + utilization_penalty` 完全相同时，当前代码采用"先到先得"机制：
+
+```python
+if total_cost < best_cost:  # 注意：使用"<"而非"<="
+    best_cost = total_cost
+    best_shelf = shelf
+```
+
+**潜在影响**:
+
+- ❌ **依赖遍历顺序**: 结果取决于`available_shelves`列表的顺序
+- ❌ **可能不公平**: 总是偏向列表中靠前的货架
+- ❌ **缺乏随机性**: 在完全相同情况下缺乏随机选择
+
+**改进建议**:
+
+```python
+# 方案1: 随机选择（推荐）
+def _select_best_shelf(self, parcel, available_shelves):
+    best_shelves = []  # 存储所有最佳货架
+    best_cost = float('inf')
+    
+    for shelf in available_shelves:
+        total_cost = calculate_total_cost(shelf, parcel)
+        if total_cost < best_cost:
+            best_cost = total_cost
+            best_shelves = [shelf]
+        elif total_cost == best_cost:
+            best_shelves.append(shelf)
+    
+    return random.choice(best_shelves)  # 随机选择
+```
+
+#### 问题2: 相同概率包裹的分配顺序
+
+**问题描述**:
+批量分配时，当多个包裹具有相同的预测概率时，当前排序逻辑：
+
+```python
+sorted_parcels = sorted(parcels, key=lambda p: p.predicted_pickup_probability or 0, reverse=True)
+```
+
+只考虑概率单一维度，相同概率的包裹按原始输入顺序分配。
+
+**潜在影响**:
+
+- ❌ **依赖输入顺序**: 先输入的包裹总是优先获得好位置
+- ❌ **缺乏优化考虑**: 未考虑包裹尺寸、到达时间等因素
+- ❌ **可能不公平**: 对相同概率包裹处理不够智能
+
+**改进建议**:
+
+```python
+# 方案1: 多级排序（推荐）
+def batch_assign_parcels(self, parcels, station):
+    def sort_key(parcel):
+        return (
+            -(parcel.predicted_pickup_probability or 0),  # 概率高优先
+            parcel.size.value,                           # 小包裹优先
+            parcel.arrival_time                          # 早到优先
+        )
+    
+    sorted_parcels = sorted(parcels, key=sort_key)
+    # ... 后续分配逻辑
+```
+
+**排序优先级逻辑**:
+
+1. **概率**: 高概率包裹优先（主要因素）
+2. **尺寸**: 小包裹优先（便于携带，更可能及时取走）
+3. **到达时间**: 早到的优先（避免长时间积压）
+
+#### 问题3: 缺乏包裹等待机制 ⚠️ **重要**
+
+**问题描述**:
+当所有货架都满了时，系统缺乏完整的包裹等待和重试机制：
+
+**基础版本问题**:
+
+```python
+def assign_parcel_to_shelf(self, parcel, station):
+    available_shelves = station.get_available_shelves(parcel.size, preferred_type)
+    
+    if not available_shelves:
+        self.logger.warning(f"No available shelves for parcel {parcel.parcel_id}")
+        return None  # ❌ 直接失败，包裹丢失
+```
+
+**增强版本问题**:
+
+- ✅ 有 `pending_placement_queue`（工人处理队列）
+- ❌ 但没有 `shelf_waiting_queue`（货架等待队列）
+- ❌ 分配失败的包裹直接消失
+
+**潜在影响**:
+
+- ❌ **包裹丢失**: 分配失败的包裹没有保存
+- ❌ **客户体验差**: 包裹到达却无法存储
+- ❌ **系统不完整**: 缺乏真实场景的处理能力
+- ❌ **无法处理高峰**: 高峰期所有货架满时系统崩溃
+
+**改进建议**:
+
+```python
+class EnhancedParcelStation(ParcelStation):
+    def __init__(self):
+        super().__init__()
+        self.shelf_waiting_queue = []  # 等待货架空出的包裹队列
+        self.max_waiting_time = timedelta(hours=24)  # 最大等待时间
+        
+    def add_waiting_parcel(self, parcel: Parcel):
+        """将包裹加入等待队列"""
+        parcel.waiting_start_time = datetime.now()
+        self.shelf_waiting_queue.append(parcel)
+        self.logger.info(f"Parcel {parcel.parcel_id} added to waiting queue")
+    
+    def try_assign_waiting_parcels(self):
+        """尝试为等待队列中的包裹分配货架"""
+        assigned_count = 0
+        remaining_parcels = []
+        
+        for parcel in self.shelf_waiting_queue:
+            # 检查是否超时
+            if datetime.now() - parcel.waiting_start_time > self.max_waiting_time:
+                self.logger.warning(f"Parcel {parcel.parcel_id} waiting timeout")
+                continue
+            
+            # 尝试分配
+            assigned_shelf = self.optimizer.assign_parcel_to_shelf(parcel, self)
+            if assigned_shelf:
+                assigned_count += 1
+                self.logger.info(f"Waiting parcel {parcel.parcel_id} assigned to {assigned_shelf.shelf_id}")
+            else:
+                remaining_parcels.append(parcel)
+        
+        self.shelf_waiting_queue = remaining_parcels
+        return assigned_count
+
+# 修改优化器
+class EnhancedOptimizer(ParcelAssignmentOptimizer):
+    def assign_parcel_to_shelf(self, parcel, station):
+        # 先尝试正常分配
+        result = super().assign_parcel_to_shelf(parcel, station)
+        
+        if result is None:
+            # 分配失败，加入等待队列
+            station.add_waiting_parcel(parcel)
+            return "WAITING"  # 返回等待状态而非None
+        
+        return result
+```
+
+**等待机制触发时机**:
+
+1. **包裹被取走时**: 货架空出位置，触发等待队列处理
+2. **定期检查**: 每隔一定时间检查等待队列
+3. **新货架添加时**: 系统扩容时重新分配等待包裹
+4. **重优化时**: LSNS重优化可能为等待包裹找到更好方案
 5. 结果优化
 
 6. Reference
