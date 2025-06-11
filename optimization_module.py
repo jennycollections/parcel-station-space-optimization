@@ -108,30 +108,53 @@ class ParcelAssignmentOptimizer:
     
     def _select_best_shelf(self, parcel: Parcel, available_shelves: List[Shelf]) -> Shelf:
         """
-        Select the best shelf from available options using cost optimization.
+        Select the best shelf using the NEW COMPREHENSIVE OBJECTIVE FUNCTION:
         
-        Implements the cost function: D_j * (1 - p_hat_i)
-        Lower cost is better.
+        min ∑ x_ij · [α · D_j + β · W_j + γ · (1 - p̂_i)]
+        
+        Where:
+        - D_j: Distance from shelf j to exit (customer convenience cost)
+        - W_j: Distance from shelf j to receiving entrance (employee workload cost)  
+        - (1 - p̂_i): Low priority weight (LTO core logic)
+        - α, β, γ: Adjustable coefficients for different cost components
+        
+        This comprehensive model considers:
+        1. Customer convenience (α · D_j)
+        2. Employee workload (β · W_j) 
+        3. Intelligent allocation priority (γ · (1 - p̂_i))
         
         Args:
             parcel: The parcel to assign
             available_shelves: List of shelves that can accommodate the parcel
             
         Returns:
-            The shelf with the lowest cost
+            The shelf with the lowest total cost
         """
         best_shelf = None
         best_cost = float('inf')
         
         p_hat = parcel.predicted_pickup_probability
         
+        # Get comprehensive cost parameters from config
+        alpha = config.COMPREHENSIVE_COST_PARAMS['alpha']  # Customer convenience weight
+        beta = config.COMPREHENSIVE_COST_PARAMS['beta']    # Employee workload weight  
+        gamma = config.COMPREHENSIVE_COST_PARAMS['gamma']  # LTO priority weight
+        
         for shelf in available_shelves:
-            # Calculate cost: D_j * (1 - p_hat_i)
-            cost = shelf.distance_to_exit * (1 - p_hat)
+            # 1. Customer convenience cost: α · D_j
+            customer_cost = alpha * shelf.distance_to_exit
             
-            # Add small penalty for utilization to encourage load balancing
+            # 2. Employee workload cost: β · W_j (distance from receiving entrance)
+            employee_cost = beta * shelf.distance_from_entrance
+            
+            # 3. LTO priority weight: γ · (1 - p̂_i)
+            lto_priority_cost = gamma * (1 - p_hat)
+            
+            # 4. Utilization penalty: encourage load balancing
             utilization_penalty = shelf.get_utilization_rate() * config.COST_FUNCTION_PARAMS['utilization_penalty']
-            total_cost = cost + utilization_penalty
+            
+            # 5. Total comprehensive cost
+            total_cost = customer_cost + employee_cost + lto_priority_cost + utilization_penalty
             
             if total_cost < best_cost:
                 best_cost = total_cost
@@ -141,19 +164,33 @@ class ParcelAssignmentOptimizer:
     
     def _log_assignment(self, parcel: Parcel, shelf: Shelf):
         """
-        Log the assignment decision.
+        Log the assignment decision using the comprehensive objective function.
         
         Args:
             parcel: The assigned parcel
             shelf: The shelf where parcel was assigned
         """
-        cost = shelf.distance_to_exit * (1 - parcel.predicted_pickup_probability)
+        p_hat = parcel.predicted_pickup_probability
+        
+        # Get comprehensive cost parameters from config
+        alpha = config.COMPREHENSIVE_COST_PARAMS['alpha']
+        beta = config.COMPREHENSIVE_COST_PARAMS['beta']  
+        gamma = config.COMPREHENSIVE_COST_PARAMS['gamma']
+        
+        # Calculate cost components
+        customer_cost = alpha * shelf.distance_to_exit
+        employee_cost = beta * shelf.distance_from_entrance
+        lto_priority_cost = gamma * (1 - p_hat)
+        utilization_penalty = shelf.get_utilization_rate() * config.COST_FUNCTION_PARAMS['utilization_penalty']
+        total_cost = customer_cost + employee_cost + lto_priority_cost + utilization_penalty
         
         log_message = (
             f"ASSIGNMENT: Parcel {parcel.parcel_id} "
-            f"(Size: {parcel.size.value}, Prob: {parcel.predicted_pickup_probability:.3f}) "
+            f"(Size: {parcel.size.value}, Prob: {p_hat:.3f}) "
             f"-> Shelf {shelf.shelf_id} "
-            f"(Type: {shelf.location_type.value}, Distance: {shelf.distance_to_exit}, Cost: {cost:.3f})"
+            f"(Type: {shelf.location_type.value}, "
+            f"Customer: {customer_cost:.3f}, Employee: {employee_cost:.3f}, "
+            f"LTO: {lto_priority_cost:.3f}, Total: {total_cost:.3f})"
         )
         
         if config.LOG_DETAILED_ASSIGNMENTS:
@@ -161,12 +198,26 @@ class ParcelAssignmentOptimizer:
     
     def _record_assignment(self, parcel: Parcel, shelf: Shelf):
         """
-        Record assignment for later analysis.
+        Record assignment for later analysis using the comprehensive cost model.
         
         Args:
             parcel: The assigned parcel
             shelf: The shelf where parcel was assigned
         """
+        p_hat = parcel.predicted_pickup_probability
+        
+        # Get comprehensive cost parameters from config
+        alpha = config.COMPREHENSIVE_COST_PARAMS['alpha']
+        beta = config.COMPREHENSIVE_COST_PARAMS['beta']  
+        gamma = config.COMPREHENSIVE_COST_PARAMS['gamma']
+        
+        # Calculate cost components
+        customer_cost = alpha * shelf.distance_to_exit
+        employee_cost = beta * shelf.distance_from_entrance
+        lto_priority_cost = gamma * (1 - p_hat)
+        utilization_penalty = shelf.get_utilization_rate() * config.COST_FUNCTION_PARAMS['utilization_penalty']
+        total_cost = customer_cost + employee_cost + lto_priority_cost + utilization_penalty
+        
         assignment_record = {
             'parcel_id': parcel.parcel_id,
             'parcel_size': parcel.size.value,
@@ -174,7 +225,11 @@ class ParcelAssignmentOptimizer:
             'shelf_id': shelf.shelf_id,
             'shelf_type': shelf.location_type.value,
             'shelf_distance': shelf.distance_to_exit,
-            'assignment_cost': shelf.distance_to_exit * (1 - parcel.predicted_pickup_probability),
+            'shelf_entrance_distance': shelf.distance_from_entrance,  # NEW
+            'assignment_cost': total_cost,  # Total comprehensive cost
+            'customer_cost': customer_cost,     # Cost breakdown for analysis
+            'employee_cost': employee_cost,     # Cost breakdown for analysis  
+            'lto_priority_cost': lto_priority_cost,  # Cost breakdown for analysis
             'shelf_utilization_before': shelf.get_utilization_rate()
         }
         
