@@ -53,6 +53,12 @@ class EvaluationMetrics:
     avg_pickup_time: float            # 平均取件时间
     customer_satisfaction_score: float # 客户满意度评分
     
+    # Dynamic Evaluation Metrics (NEW)
+    actual_pickup_rate: float         # 实际取件率
+    weighted_satisfaction_score: float # 概率加权满意度
+    high_prob_customer_satisfaction: float  # 高概率客户满意度
+    cost_per_satisfied_customer: float      # 每个满意客户的成本
+    
     # Operational Metrics
     processing_time: float            # 系统处理时间
     memory_usage: float              # 内存使用量
@@ -303,10 +309,10 @@ class EvaluationEngine:
         return parcels
     
     def create_test_station(self) -> ParcelStation:
-        """Create a standardized test station"""
+        """Create a standardized test station with comprehensive distance modeling"""
         station = ParcelStation()
         
-        # Add premium shelves (distance = 1)
+        # Add premium shelves (close to exit, moderate distance from entrance)
         for i in range(3):
             shelf = Shelf(
                 shelf_id=f"P{i+1}",
@@ -314,11 +320,12 @@ class EvaluationEngine:
                 capacity_small=15,
                 capacity_medium=10,
                 capacity_large=5,
-                distance_to_exit=1.0
+                distance_to_exit=1.0,      # Close to exit (good for customers)
+                distance_from_entrance=2.0 + i*0.5  # Moderate from entrance (P1=2.0, P2=2.5, P3=3.0)
             )
             station.add_shelf(shelf)
         
-        # Add standard shelves (distance = 2.5)
+        # Add standard shelves (far from exit, close to entrance)
         for i in range(5):
             shelf = Shelf(
                 shelf_id=f"S{i+1}",
@@ -326,7 +333,8 @@ class EvaluationEngine:
                 capacity_small=20,
                 capacity_medium=15,
                 capacity_large=8,
-                distance_to_exit=2.5
+                distance_to_exit=2.5,      # Far from exit (less convenient for customers)
+                distance_from_entrance=1.0 + i*0.3  # Close to entrance (S1=1.0, S2=1.3, ..., S5=2.2)
             )
             station.add_shelf(shelf)
         
@@ -389,9 +397,37 @@ class EvaluationEngine:
         # The new alignment score, reflecting the cost optimization goal
         lto_alignment_score = (low_prob_to_premium_rate + high_prob_to_standard_rate) / 2
         
-        # Service quality metrics (simulated)
-        avg_pickup_time = avg_retrieval_distance * 0.5 + random.uniform(1, 3)  # 模拟取件时间
-        customer_satisfaction_score = max(0, 1.0 - (avg_pickup_time - 2) / 10)  # 基于取件时间的满意度
+        # Service quality metrics (improved with probability weighting)
+        # 新的满意度计算：只考虑实际会取件的包裹（概率加权）
+        weighted_satisfaction_scores = []
+        total_weight = 0
+        
+        for assignment in assignments:
+            true_prob = assignment.get('true_prob', 0.5)
+            distance = assignment['distance']
+            
+            # 基础取件时间：距离 * 0.5 + 基础时间(1.5分钟) + 小随机扰动
+            base_pickup_time = distance * 0.5 + 1.5 + random.uniform(-0.2, 0.2)
+            
+            # 个体满意度 (0-1)：时间越短满意度越高
+            individual_satisfaction = max(0, 1.0 - (base_pickup_time - 2) / 8)
+            
+            # 使用真实取件概率作为权重（只有会取件的人才会影响满意度）
+            weight = true_prob
+            weighted_satisfaction_scores.append(individual_satisfaction * weight)
+            total_weight += weight
+        
+        # 加权平均满意度（避免除零）
+        if total_weight > 0:
+            customer_satisfaction_score = sum(weighted_satisfaction_scores) / total_weight
+            avg_pickup_time = sum(assignment.get('distance', 0) * 0.5 + 1.5 for assignment in assignments) / len(assignments)
+        else:
+            customer_satisfaction_score = 0.0
+            avg_pickup_time = float('inf')
+        
+        # 动态取件模拟 (需要临时创建实例来调用)
+        temp_engine = EvaluationEngine()
+        pickup_simulation = temp_engine.simulate_pickup_process(assignments)
         
         # Operational metrics (simulated)
         processing_time = len(assignments) * 0.01  # 假设每个分配需要0.01秒
@@ -424,6 +460,12 @@ class EvaluationEngine:
             lto_alignment_score=lto_alignment_score,
             avg_pickup_time=avg_pickup_time,
             customer_satisfaction_score=customer_satisfaction_score,
+            # Dynamic evaluation metrics
+            actual_pickup_rate=pickup_simulation['actual_pickup_rate'],
+            weighted_satisfaction_score=pickup_simulation['weighted_satisfaction_score'],
+            high_prob_customer_satisfaction=pickup_simulation['high_prob_customer_satisfaction'],
+            cost_per_satisfied_customer=pickup_simulation['cost_per_satisfied_customer'],
+            # Operational metrics
             processing_time=processing_time,
             memory_usage=memory_usage,
             assignment_success_rate=assignment_success_rate,
@@ -623,6 +665,70 @@ class EvaluationEngine:
         
         print(f"\nEvaluation results saved to: {save_path}")
         return filename
+
+    def simulate_pickup_process(self, assignments: List[Dict], simulation_days: int = 7) -> Dict:
+        """
+        模拟实际取件过程，基于真实概率进行动态评估
+        
+        Args:
+            assignments: 分配记录列表
+            simulation_days: 模拟天数
+            
+        Returns:
+            模拟结果字典
+        """
+        pickup_events = []
+        total_actual_pickups = 0
+        total_satisfaction_weighted = 0
+        total_cost_for_picked_up = 0
+        high_prob_satisfactions = []
+        
+        for assignment in assignments:
+            true_prob = assignment.get('true_prob', 0.5)
+            distance = assignment['distance']
+            cost = assignment['cost']
+            
+            # 模拟是否实际取件（基于真实概率）
+            will_pickup = random.random() < true_prob
+            
+            if will_pickup:
+                total_actual_pickups += 1
+                total_cost_for_picked_up += cost
+                
+                # 计算实际取件时间和满意度
+                pickup_time = distance * 0.5 + 1.5 + random.uniform(-0.1, 0.1)  # 减少随机性
+                satisfaction = max(0, 1.0 - (pickup_time - 2) / 8)
+                
+                # 概率加权满意度
+                weighted_satisfaction = satisfaction * true_prob
+                total_satisfaction_weighted += weighted_satisfaction
+                
+                # 记录高概率客户的满意度
+                if true_prob >= 0.7:
+                    high_prob_satisfactions.append(satisfaction)
+                
+                pickup_events.append({
+                    'parcel_id': assignment['parcel_id'],
+                    'pickup_time': pickup_time,
+                    'satisfaction': satisfaction,
+                    'true_prob': true_prob,
+                    'cost': cost
+                })
+        
+        # 计算动态指标
+        actual_pickup_rate = total_actual_pickups / len(assignments) if assignments else 0
+        avg_weighted_satisfaction = total_satisfaction_weighted / len(assignments) if assignments else 0
+        high_prob_satisfaction = statistics.mean(high_prob_satisfactions) if high_prob_satisfactions else 0
+        cost_per_satisfied = total_cost_for_picked_up / max(total_actual_pickups, 1)
+        
+        return {
+            'pickup_events': pickup_events,
+            'actual_pickup_rate': actual_pickup_rate,
+            'weighted_satisfaction_score': avg_weighted_satisfaction,
+            'high_prob_customer_satisfaction': high_prob_satisfaction,
+            'cost_per_satisfied_customer': cost_per_satisfied,
+            'total_actual_pickups': total_actual_pickups
+        }
 
 def main():
     """Main evaluation function"""
