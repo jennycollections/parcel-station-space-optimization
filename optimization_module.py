@@ -60,11 +60,10 @@ class ParcelAssignmentOptimizer:
         if parcel.predicted_pickup_probability is None:
             raise ValueError(f"Parcel {parcel.parcel_id} must have predicted probability before assignment")
         
-        # Determine preferred shelf type based on pickup probability
-        preferred_type = self._determine_preferred_shelf_type(parcel.predicted_pickup_probability)
-        
-        # Get available shelves, sorted by preference
-        available_shelves = station.get_available_shelves(parcel.size, preferred_type)
+        # The optimizer should search across ALL available shelves to find the true minimum cost,
+        # aligning with the pure mathematical objective of min(D * (1-p)).
+        # The previous hard-coded rule (_determine_preferred_shelf_type) created a conflict.
+        available_shelves = station.get_available_shelves(parcel.size)
         
         if not available_shelves:
             self.logger.warning(f"No available shelves for parcel {parcel.parcel_id} (size: {parcel.size.value})")
