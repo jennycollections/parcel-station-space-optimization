@@ -63,12 +63,13 @@ class Shelf:
         capacity_volume (dict): Maximum capacity for each parcel size
         current_used_volume (dict): Currently used capacity for each size
         distance_to_exit (float): Distance/inconvenience score (lower = more convenient)
+        distance_from_entrance (float): Distance from entrance (NEW: Employee workload cost)
         parcels_stored (List[str]): List of parcel IDs currently stored
     """
     
     def __init__(self, shelf_id: str, location_type: ShelfType, 
                  capacity_small: int = 10, capacity_medium: int = 5, capacity_large: int = 2,
-                 distance_to_exit: float = 1.0):
+                 distance_to_exit: float = 1.0, distance_from_entrance: float = 1.0):
         self.shelf_id = shelf_id
         self.location_type = location_type
         self.capacity_volume = {
@@ -82,6 +83,7 @@ class Shelf:
             ParcelSize.LARGE: 0
         }
         self.distance_to_exit = distance_to_exit
+        self.distance_from_entrance = distance_from_entrance  # NEW: Employee workload cost
         self.parcels_stored: List[str] = []
     
     def can_accommodate(self, parcel_size: ParcelSize) -> bool:
