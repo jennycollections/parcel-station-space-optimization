@@ -110,6 +110,23 @@ COST_FUNCTION_PARAMS = {
 }
 
 # ============================================================================
+# MULTI-OBJECTIVE COST MODEL PARAMETERS
+# ============================================================================
+
+# Storage cost parameters
+STORAGE_COST_PARAMS = {
+    'holding_cost_per_day': 0.1,     # 每天存储成本 (CNY/day)
+    'expected_holding_days': 3,      # 预期存储天数
+    'storage_weight': 0.6            # 存储成本权重
+}
+
+# Customer convenience cost parameters  
+CONVENIENCE_COST_PARAMS = {
+    'inconvenience_weight': 0.5,     # 距离不便权重
+    'convenience_weight': 0.4        # 便利性成本权重
+}
+
+# ============================================================================
 # SIMULATION PARAMETERS
 # ============================================================================
 
@@ -126,6 +143,17 @@ LOG_DETAILED_ASSIGNMENTS = True  # Whether to log each parcel assignment
 # Output configuration
 SAVE_RESULTS = True
 RESULTS_FILENAME = 'simulation_results.json'
+
+# ============================================================================
+# EVALUATION WEIGHTS
+# ============================================================================
+# Weights for the 'strategy_effectiveness' score, reflecting the new focus on occupancy cost.
+# These values must sum to 1.0.
+STRATEGY_EFFECTIVENESS_WEIGHTS = {
+    'cost': 0.6,        # Primary driver: minimize occupancy cost
+    'alignment': 0.3,   # Secondary: ensure the cost is minimized via the intended strategy
+    'satisfaction': 0.1 # Acknowledge the trade-off with customer-facing metrics
+}
 
 # ============================================================================
 # VALIDATION PARAMETERS
@@ -168,6 +196,11 @@ def validate_config():
     if abs(total_prob - 1.0) > 0.001:
         raise ValueError(f"Parcel size distribution probabilities must sum to 1.0, got {total_prob}")
     
+    # Validate strategy effectiveness weights
+    total_weight = sum(STRATEGY_EFFECTIVENESS_WEIGHTS.values())
+    if abs(total_weight - 1.0) > 0.001:
+        raise ValueError(f"Strategy effectiveness weights must sum to 1.0, got {total_weight}")
+
     # Validate shelf counts match distance scores
     if len(SHELF_DISTANCE_SCORES['premium']) != PREMIUM_SHELF_COUNT:
         raise ValueError("Number of premium distance scores must match PREMIUM_SHELF_COUNT")
@@ -184,4 +217,17 @@ def validate_config():
 
 # Validate configuration on import
 if __name__ == "__main__":
-    validate_config() 
+    validate_config()
+
+# ============================================================================
+# COMPREHENSIVE OBJECTIVE FUNCTION PARAMETERS (NEW)
+# ============================================================================
+
+# NEW COMPREHENSIVE COST MODEL: min ∑ x_ij · [α · D_j + β · W_j + γ · (1 - p̂_i)]
+COMPREHENSIVE_COST_PARAMS = {
+    'alpha': 0.4,   # α: Customer convenience weight (顾客取件成本)
+    'beta': 0.3,    # β: Employee workload weight (员工上架工作量)  
+    'gamma': 0.3    # γ: LTO priority weight (智能分配权重)
+}
+
+# Note: α + β + γ = 1.0 for interpretability, but can be adjusted independently 
