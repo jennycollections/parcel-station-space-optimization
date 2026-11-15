@@ -1,373 +1,402 @@
-# Advanced-analytics-in-planning-automated-warehousing-operations
-Learn-then-optimize (LTO) approach is simulated to apply in Cainiao Station in China.
+# Parcel Station Space Optimization: ML-Enhanced SLAP Framework
 
-1. Project Overview
-这里需要定义问题
+## 1. System Architecture
 
-2. 算法解释
+This project explores a machine learning-enhanced approach to the **S ervice Level Agreement Problem (SLAP)** in parcel locker and parcel station operations.
 
-3. 代码解释
+The framework connects parcel arrival simulation, feature engineering, pickup probability prediction, and parcel-to-shelf assignment. Its central mechanism is to use predicted pickup probabilities to adjust the shelf allocation strategy.
 
-   3.1 config.py: this module contains all configurable parameters for the simulation, including shelf configurations, parcel generation parameters, and simulation settings.
-   
-   ### SHELF CONFIGURATION
-   
-   #### Shelf Type (`location_type`)
+The overall data flow is:
 
-   定义: 货架的位置类型分类
-
-   数据类型: `ShelfType` 枚举
-
-   取值: `PREMIUM` (优质位置), `STANDARD` (标准位置)
-
-   分布: 3个Premium货架, 5个Standard货架
-
-   | 特征     | Premium | Standard |
-   | -------- | ------- | -------- |
-   | 距离评分 | 1.0-1.5 | 2.0-4.0  |
-   | 容量     | 较小    | 较大     |
-   | 便利度   | 高      | 中等     |
-   | 竞争度   | 高      | 低       |
-
-   设计理念: 二分类，简化决策复杂度；差异化，明确的便利度和容量差异；稀缺性，Premium货架数量有限，创造竞争。
-
-    #### Distance to Exit (`distance_to_exit`)
-
-   定义: 货架到出口的距离/便利度评分
-
-   数据类型: `float`
-
-   取值: 1.0 - 4.0（数值越小表示位置越便利，取件越容易）
-
-   分布:
-
-   ```python
-   SHELF_DISTANCE_SCORES = {
-       'premium': [1.0, 1.2, 1.5],           # 最便利位置
-       'standard': [2.0, 2.5, 3.0, 3.5, 4.0] # 相对不便利位置
-   }
-   ```
-
-   设计理念:
-   抽象化: 不使用实际物理距离（米），而是便利度的相对评分
-   成本导向: 在目标函数中作为成本系数，数值越大"惩罚"越重
-   可扩展性: 可根据实际快递站布局调整评分标准
-
-   ### PARCEL GENERATION PARAMETERS
-
-   #### Time Parameters
-
-   时间步长(`TIME_STEP_MINUTES`): 30分钟
-
-   设计理念: 平衡计算效率和时间精度
-
-   模拟时长(`SIMULATION_HOURS`): 12小时
-
-   设计理念: 覆盖一个完整的营业日
-
-   到达率(`PARCEL_ARRIVAL_RATES`): 4-18包裹/小时
-
-   设计理念: 基于中小型快递站的实际业务量
-
-   时间段(`TIME_PERIODS`)
-
-   定义: 一天中的不同时间段分类
-
-   ```python
-   TIME_PERIODS = {
-       'peak_morning': (8, 10),    # 早高峰
-       'normal_morning': (10, 12), # 普通上午
-       'peak_afternoon': (12, 14), # 午高峰
-       'normal_afternoon': (14, 16), # 普通下午
-       'peak_evening': (16, 18),   # 晚高峰
-       'low_evening': (18, 20)     # 晚间
-   }
-   ```
-
-   设计理念:
-   用户行为: 反映中国用户的取件时间偏好
-   业务逻辑: (上班前)、午休、下班后是取件高峰
-   预测基础: 为概率预测提供时间特征
-
-   #### Parcel Size
-
-   定义: 包裹的尺寸分类
-
-   数据类型: `ParcelSize` 枚举
-
-   取值: `SMALL`, `MEDIUM`, `LARGE`
-
-   分布: 60% 小件, 30% 中件, 10% 大件
-
-   容量影响:
-
-   ```python
-   SHELF_CAPACITY = {
-       'premium': {SMALL: 8, MEDIUM: 4, LARGE: 2},
-       'standard': {SMALL: 12, MEDIUM: 6, LARGE: 3}
-   }
-   ```
-
-   设计理念:
-   简化分类: 避免连续尺寸的复杂性
-   容量约束: 不同尺寸占用不同货架空间
-   现实分布: 基于电商包裹的典型尺寸分布
-
-   ### LEARNING MODULE PARAMETERS
-   
-   #### Pickup Probability (`predicted_pickup_probability`) ?
-
-   定义: 包裹在未来特定时间内被取走的概率
-
-   数据类型: `float`
-
-   范围: 0.0 - 1.0（1.0表示肯定会被取走，0.0表示不太可能被取走）
-
-   ```python
-   BASE_PICKUP_PROBABILITIES = {
-       'peak_morning': 0.85,    # 早高峰：高概率
-       'normal_morning': 0.65,  # 普通上午：中高概率
-       'peak_afternoon': 0.75,  # 午高峰：高概率
-       'normal_afternoon': 0.55, # 普通下午：中等概率
-       'peak_evening': 0.90,    # 晚高峰：很高概率
-       'low_evening': 0.40      # 晚间：较低概率
-   }
-   ```
-
-   影响因素:
-   时间段: 高峰期概率更高
-   包裹大小: 大包裹概率略低（需要规划取件）
-   随机噪声: ±0.1的随机变化模拟不确定性
-
-   设计理念:
-   时间相关性: 反映用户取件的时间偏好
-   现实性: 基于对中国快递站用户行为的观察
-   可替换性: 未来可用ML模型替换规则
-
-   ### OPTIMIZATION MODULE PARAMETERS
-
-   ### VALIDATION PARAMETERS
-
-   定义：？
-
-   取值：HIGH_PROBABILITY_THRESHOLD >= 0.7
-
-   验证范围:
-   ```python
-   MIN_PROBABILITY = 0.0
-   MAX_PROBABILITY = 1.0
-   MIN_DISTANCE_SCORE = 0.1
-   MAX_DISTANCE_SCORE = 10.0
-   ```
-
-   设计理念: 模拟真实的空间约束
-   
-   #### 我没找到assignment cost
-   #### 这个部分的设置应该基于一定的现实考察，所以需要更多的数据支持
-
-   3.2 data_structures.py: this module defines the fundamental classes used throughout the simulation, including Parcel, Shelf, and ParcelStation.
-
-   3.3 learning_module.py: this module currently uses rule-based prediction model to predict pickup probability (p_hat_i) for each parcel,
-based on features like arrival time, parcel size, and time period.
-   #### 这个部分未来会进一步使用machine learning model
-
-   3.4 optimization_module.py: it uses the predicted pickup probabilities from the learning module to make intelligent parcel-to-shelf assignment decisions.
-
-   #### 这里我忽然想到一个问题就是国内的货架摆放好像是基于产品种类（可能和运输过程的货物摆放有关系），如果我们现在按照产品被取走的概率摆放货物，可能给快递员带来更多的工作量。所以，我觉着应该进一步弄清楚原来的快递摆放规则。
-
-   3.5 simulation_engine.py: this module is to collect data by generating parcel arrivals over time, using the learning module to predict pickup probabilities, using the optimization module to assign parcels to shelves.
-
-   3.6 main.py: this module utilized the data collected from the simulation_engine.py to demonstrate the "Learn-then-Optimize" workflow for parcel station management.
-  
-4. 结果解释
-### Key Metrics
-
-- **LTO Alignment Score**: How well the system assigns high-probability parcels to premium shelves
-- **Average Assignment Cost**: Overall cost based on the objective function
-- **Shelf Utilization**: How efficiently different shelf types are used
-- **Premium Assignment Ration**: Percentage of parcels assigned to premium shelves
-
-### Sample Output
-
-```
-CAINIAO PARCEL STATION LTO SIMULATION SUMMARY
-============================================================
-Simulation Duration: 12 hours
-Total Parcels Processed: 156
-Average Assignment Cost: 0.847
-Premium Shelf Usage: 45.5%
-
-LTO Effectiveness Metrics:
-------------------------------
-High-prob → Premium Rate: 89.2%
-Low-prob → Standard Rate: 78.4%
-Overall LTO Alignment: 83.8%
+```text
+Environmental Factors
+        |
+        v
+Parcel Arrival Simulation
+        |
+        v
+Parcel Data Generation
+        |
+        v
+Feature Engineering
+        |
+        v
+Pickup Probability Prediction
+        |
+        v
+Prediction-Driven SLAP Optimization
+        |
+        v
+Parcel-to-Shelf Assignment
+        |
+        v
+Performance Evaluation
+        |
+        v
+Feedback and Model Improvement
 ```
 
-### 发现的问题与改进方向
+The system also includes an A/B testing framework to compare the baseline allocation strategy with the ML-enhanced strategy.
 
-#### 问题1: 相同成本货架的处理机制
+## 2. Environment-Driven Parcel Simulation
 
-**问题描述**:
-当多个货架的总成本 `total_cost = basic_cost + utilization_penalty` 完全相同时，当前代码采用"先到先得"机制：
+### 2.1 Environmental Factors
 
-```python
-if total_cost < best_cost:  # 注意：使用"<"而非"<="
-    best_cost = total_cost
-    best_shelf = shelf
+Parcel arrivals are influenced by multiple external factors. The simulation framework considers:
+
+- Weather conditions
+- Temperature
+- Public holidays
+- Weekdays and weekends
+- Traffic conditions
+- Special events
+
+These factors are used to adjust the expected parcel arrival rate.
+
+### 2.2 Parcel Arrival Model
+
+The arrival rate is determined by the baseline arrival rate and several adjustment factors:
+
+```text
+lambda_t =
+    lambda_base_t
+    * M_daily
+    * M_seasonal
+    * E_t
 ```
 
-**潜在影响**:
+Where:
 
-- ❌ **依赖遍历顺序**: 结果取决于`available_shelves`列表的顺序
-- ❌ **可能不公平**: 总是偏向列表中靠前的货架
-- ❌ **缺乏随机性**: 在完全相同情况下缺乏随机选择
+| Variable | Description |
+|---|---|
+| `lambda_t` | Adjusted parcel arrival rate at time t |
+| `lambda_base_t` | Baseline arrival rate |
+| `M_daily` | Daily pattern adjustment |
+| `M_seasonal` | Seasonal adjustment |
+| `E_t` | Environmental adjustment factor |
 
-**改进建议**:
+Parcel arrivals follow a Poisson process. Inter-arrival times are modelled using an exponential distribution with the corresponding arrival rate.
 
-```python
-# 方案1: 随机选择（推荐）
-def _select_best_shelf(self, parcel, available_shelves):
-    best_shelves = []  # 存储所有最佳货架
-    best_cost = float('inf')
-    
-    for shelf in available_shelves:
-        total_cost = calculate_total_cost(shelf, parcel)
-        if total_cost < best_cost:
-            best_cost = total_cost
-            best_shelves = [shelf]
-        elif total_cost == best_cost:
-            best_shelves.append(shelf)
-    
-    return random.choice(best_shelves)  # 随机选择
+Each generated parcel can contain attributes such as parcel size, arrival time, customer information, and environmental context.
+
+## 3. Feature Engineering
+
+Feature engineering transforms raw parcel and operational data into inputs for the pickup probability prediction model.
+
+The data flow analysis describes five feature categories, covering approximately 53 potential features.
+
+| Feature Category | Examples |
+|---|---|
+| Basic Parcel Features | Parcel size and parcel attributes |
+| Temporal Features | Arrival time, hour, weekday, and peak periods |
+| Environmental Features | Weather, temperature, holidays, and traffic |
+| Historical Statistical Features | Historical pickup patterns and aggregated statistics |
+| System-State Features | Shelf availability and current system conditions |
+
+### 3.1 Feature Processing
+
+The feature engineering pipeline includes:
+
+1. Extracting features from parcel, environmental, and system-state data.
+2. Handling and transforming input variables.
+3. Standardizing numerical features using `StandardScaler`.
+4. Analysing feature correlations and importance.
+5. Selecting relevant features using a Top-K feature selection approach.
+
+The documented default Top-K setting is 20 features.
+
+## 4. Pickup Probability Prediction
+
+### 4.1 Prediction Objective
+
+The prediction module estimates the probability that a parcel will be collected within the next 24 hours.
+
+The predicted probability is subsequently passed to the SLAP optimization module.
+
+```text
+Parcel Features
+       |
+       v
+Feature Processing
+       |
+       v
+ML Prediction Model
+       |
+       v
+Predicted Pickup Probability
+       |
+       v
+Adaptive SLAP Optimization
 ```
 
-#### 问题2: 相同概率包裹的分配顺序
+### 4.2 Model Design
 
-**问题描述**:
-批量分配时，当多个包裹具有相同的预测概率时，当前排序逻辑：
+The data flow analysis describes several potential model candidates:
 
-```python
-sorted_parcels = sorted(parcels, key=lambda p: p.predicted_pickup_probability or 0, reverse=True)
+- Random Forest
+- Gradient Boosting
+- XGBoost
+- Logistic Regression
+- Multi-Layer Perceptron (MLP)
+
+It also describes an ensemble prediction approach.
+
+For the final reported project results, the models are **Random Forest and Logistic Regression**. The broader candidate list represents the documented framework design and should not be interpreted as a claim that every candidate was included in the final evaluation.
+
+### 4.3 Model Training and Evaluation
+
+The documented training workflow includes:
+
+- Batch-based model training
+- Five-fold cross-validation
+- Hyperparameter tuning
+- Feature importance analysis
+- Model performance monitoring
+- Fallback mechanisms
+
+Prediction performance can be evaluated using accuracy, precision, recall, F1-score, and AUC.
+
+## 5. Prediction-Driven Adaptive SLAP Optimization
+
+This is the central decision-making mechanism of the framework.
+
+The optimization process combines four objectives:
+
+1. Customer convenience
+2. Employee workload
+3. System efficiency
+4. Future flexibility
+
+The predicted pickup probability influences the relative importance of these objectives and adjusts the scores assigned to different shelf types.
+
+### 5.1 Baseline SLAP: Fixed Objective Weights
+
+The baseline strategy uses fixed weights:
+
+| Objective | Weight |
+|---|---:|
+| Customer Convenience | 0.4 |
+| Employee Workload | 0.3 |
+| System Efficiency | 0.2 |
+| Future Flexibility | 0.1 |
+| **Total** | **1.0** |
+
+The combined shelf score is calculated as:
+
+```text
+Baseline Score =
+    0.4 * Customer Convenience
+  + 0.3 * Employee Workload
+  + 0.2 * System Efficiency
+  + 0.1 * Future Flexibility
 ```
 
-只考虑概率单一维度，相同概率的包裹按原始输入顺序分配。
+The available feasible shelves are evaluated, and the shelf with the highest combined score is selected.
 
-**潜在影响**:
+### 5.2 Adaptive Objective Weights
 
-- ❌ **依赖输入顺序**: 先输入的包裹总是优先获得好位置
-- ❌ **缺乏优化考虑**: 未考虑包裹尺寸、到达时间等因素
-- ❌ **可能不公平**: 对相同概率包裹处理不够智能
+In the ML-enhanced strategy, the predicted pickup probability determines the objective weights.
 
-**改进建议**:
+| Predicted Pickup Probability | Customer Convenience | Employee Workload | System Efficiency | Future Flexibility |
+|---|---:|---:|---:|---:|
+| High: > 0.8 | 0.5 | 0.2 | 0.2 | 0.1 |
+| Medium: > 0.5 to 0.8 | 0.4 | 0.3 | 0.2 | 0.1 |
+| Low: <= 0.5 | 0.3 | 0.3 | 0.3 | 0.1 |
 
-```python
-# 方案1: 多级排序（推荐）
-def batch_assign_parcels(self, parcels, station):
-    def sort_key(parcel):
-        return (
-            -(parcel.predicted_pickup_probability or 0),  # 概率高优先
-            parcel.size.value,                           # 小包裹优先
-            parcel.arrival_time                          # 早到优先
-        )
-    
-    sorted_parcels = sorted(parcels, key=sort_key)
-    # ... 后续分配逻辑
+The resulting objective weights are used to calculate the base shelf score:
+
+```text
+Adaptive Base Score =
+    w_customer * Customer Convenience
+  + w_employee * Employee Workload
+  + w_efficiency * System Efficiency
+  + w_flexibility * Future Flexibility
 ```
 
-**排序优先级逻辑**:
+Here, each weight is selected according to the predicted pickup probability.
 
-1. **概率**: 高概率包裹优先（主要因素）
-2. **尺寸**: 小包裹优先（便于携带，更可能及时取走）
-3. **到达时间**: 早到的优先（避免长时间积压）
+### 5.3 ML-Based Shelf Score Adjustment
 
-#### 问题3: 缺乏包裹等待机制 ⚠️ **重要**
+In addition to adjusting objective weights, the framework applies a further score adjustment based on the parcel's predicted pickup probability and the shelf type.
 
-**问题描述**:
-当所有货架都满了时，系统缺乏完整的包裹等待和重试机制：
+**Premium shelves**
 
-**基础版本问题**:
+For parcels with a high predicted pickup probability:
 
-```python
-def assign_parcel_to_shelf(self, parcel, station):
-    available_shelves = station.get_available_shelves(parcel.size, preferred_type)
-    
-    if not available_shelves:
-        self.logger.warning(f"No available shelves for parcel {parcel.parcel_id}")
-        return None  # ❌ 直接失败，包裹丢失
+```text
+ML Bonus = 2.0 * Pickup Probability
+
+Adjusted Score = Base Score + ML Bonus
 ```
 
-**增强版本问题**:
+For parcels with a predicted pickup probability of 0.8 or below:
 
-- ✅ 有 `pending_placement_queue`（工人处理队列）
-- ❌ 但没有 `shelf_waiting_queue`（货架等待队列）
-- ❌ 分配失败的包裹直接消失
+```text
+ML Penalty = -1.5 * (1 - Pickup Probability)
 
-**潜在影响**:
-
-- ❌ **包裹丢失**: 分配失败的包裹没有保存
-- ❌ **客户体验差**: 包裹到达却无法存储
-- ❌ **系统不完整**: 缺乏真实场景的处理能力
-- ❌ **无法处理高峰**: 高峰期所有货架满时系统崩溃
-
-**改进建议**:
-
-```python
-class EnhancedParcelStation(ParcelStation):
-    def __init__(self):
-        super().__init__()
-        self.shelf_waiting_queue = []  # 等待货架空出的包裹队列
-        self.max_waiting_time = timedelta(hours=24)  # 最大等待时间
-        
-    def add_waiting_parcel(self, parcel: Parcel):
-        """将包裹加入等待队列"""
-        parcel.waiting_start_time = datetime.now()
-        self.shelf_waiting_queue.append(parcel)
-        self.logger.info(f"Parcel {parcel.parcel_id} added to waiting queue")
-    
-    def try_assign_waiting_parcels(self):
-        """尝试为等待队列中的包裹分配货架"""
-        assigned_count = 0
-        remaining_parcels = []
-        
-        for parcel in self.shelf_waiting_queue:
-            # 检查是否超时
-            if datetime.now() - parcel.waiting_start_time > self.max_waiting_time:
-                self.logger.warning(f"Parcel {parcel.parcel_id} waiting timeout")
-                continue
-            
-            # 尝试分配
-            assigned_shelf = self.optimizer.assign_parcel_to_shelf(parcel, self)
-            if assigned_shelf:
-                assigned_count += 1
-                self.logger.info(f"Waiting parcel {parcel.parcel_id} assigned to {assigned_shelf.shelf_id}")
-            else:
-                remaining_parcels.append(parcel)
-        
-        self.shelf_waiting_queue = remaining_parcels
-        return assigned_count
-
-# 修改优化器
-class EnhancedOptimizer(ParcelAssignmentOptimizer):
-    def assign_parcel_to_shelf(self, parcel, station):
-        # 先尝试正常分配
-        result = super().assign_parcel_to_shelf(parcel, station)
-        
-        if result is None:
-            # 分配失败，加入等待队列
-            station.add_waiting_parcel(parcel)
-            return "WAITING"  # 返回等待状态而非None
-        
-        return result
+Adjusted Score = Base Score + ML Penalty
 ```
 
-**等待机制触发时机**:
+**Standard shelves**
 
-1. **包裹被取走时**: 货架空出位置，触发等待队列处理
-2. **定期检查**: 每隔一定时间检查等待队列
-3. **新货架添加时**: 系统扩容时重新分配等待包裹
-4. **重优化时**: LSNS重优化可能为等待包裹找到更好方案
-5. 结果优化
+```text
+ML Adjustment = 0.5 * Pickup Probability
 
-6. Reference
-Barnhart, C., Jacquillat, A., & Schmid, A. (2024). Robotic warehousing operations: a learn-then-optimize approach to large-scale neighborhood search. INFORMS Journal on Optimization.
+Adjusted Score = Base Score + ML Adjustment
+```
+
+This mechanism gives higher priority to premium shelf locations for parcels expected to be collected quickly, while reducing their attractiveness for parcels with lower predicted pickup probabilities.
+
+### 5.4 Shelf Assignment
+
+After calculating the adjusted scores:
+
+1. Identify shelves that are compatible with the parcel size.
+2. Exclude unavailable or infeasible shelves.
+3. Calculate the adjusted score for each feasible shelf.
+4. Select the shelf with the highest score.
+5. Assign the parcel to the selected shelf.
+
+The documented allocation approach uses a greedy selection heuristic.
+
+## 6. A/B Testing Framework
+
+The A/B testing framework compares two allocation strategies under the same general evaluation structure.
+
+### 6.1 Control and Treatment Groups
+
+| Component | Control Group | Treatment Group |
+|---|---|---|
+| Pickup Prediction | Rule-based prediction | ML-based prediction |
+| SLAP Strategy | Fixed objective weights | Prediction-driven adaptive weights |
+| Shelf Scoring | Baseline scoring | ML-adjusted scoring |
+| Allocation | Baseline SLAP | ML-enhanced SLAP |
+
+The control group represents the baseline SLAP strategy, while the treatment group uses ML predictions to influence the allocation decisions.
+
+### 6.2 Group Assignment
+
+The documented design uses a 50/50 traffic split.
+
+Requests are assigned to a test group using a hash-based routing mechanism.
+
+```text
+Incoming Parcel
+       |
+       v
+A/B Test Router
+       |
+       +----------------------+
+       |                      |
+       v                      v
+Control Group           Treatment Group
+       |                      |
+       v                      v
+Baseline SLAP           ML-Enhanced SLAP
+       |                      |
+       +----------+-----------+
+                  |
+                  v
+          Performance Evaluation
+```
+
+### 6.3 Evaluation Metrics
+
+The framework evaluates performance across several dimensions:
+
+| Evaluation Dimension | Example Metrics |
+|---|---|
+| Prediction Performance | Accuracy, precision, recall, F1-score, AUC |
+| Optimization Performance | Four-objective combined score |
+| Operational Performance | Processing time and throughput |
+| Business Performance | Customer convenience and operational efficiency |
+
+Statistical validation can include:
+
+- Sample size assessment
+- Confidence level
+- P-value
+- Effect size
+- Comparison of control and treatment group results
+
+## 7. Feedback and Continuous Improvement
+
+The framework also describes a feedback loop connecting actual parcel pickup outcomes with previous predictions.
+
+```text
+Predicted Pickup Probability
+           |
+           v
+      Parcel Assignment
+           |
+           v
+    Actual Pickup Outcome
+           |
+           v
+   Prediction Comparison
+           |
+           v
+      Feedback Data
+           |
+           v
+      Model Update
+           |
+           +------> Updated Prediction Model
+```
+
+The purpose of this process is to use observed outcomes to improve future predictions.
+
+The documented design includes batch-based updates, model monitoring, and mechanisms for handling changes in prediction performance.
+
+## 8. Performance Monitoring
+
+The monitoring framework covers four main areas:
+
+| Area | Indicators |
+|---|---|
+| Prediction | Accuracy, recall, F1-score, AUC |
+| Optimization | Objective scores and allocation performance |
+| System | Throughput, response time, and stability |
+| Business | Customer convenience and operational efficiency |
+
+The monitoring workflow is:
+
+```text
+System Execution
+       |
+       v
+Metric Calculation
+       |
+       v
+Performance Monitoring
+       |
+       v
+Alerting and Diagnosis
+       |
+       v
+Potential System Adjustment
+```
+
+## 9. Core Module Reference
+
+The following modules are associated with the documented data flow and system design.
+
+| Module | Main Responsibility |
+|---|---|
+| `start.py` | Application entry point and execution modes |
+| `config.py` | System and model configuration |
+| `data_structures.py` | Core data structures, including parcels, shelves, and stations |
+| `learning_module.py` | Machine learning functionality |
+| `ml_lto_framework.py` | ML prediction and ML-enhanced optimization framework |
+| `optimization_module.py` | Baseline SLAP optimization |
+| `progressive_improvement_system.py` | A/B testing and progressive improvement mechanisms |
+| `enhanced_dynamic_simulation.py` | Dynamic simulation |
+| `performance_comparison.py` | Performance comparison and evaluation |
+| `cost_analysis_tool.py` | Cost analysis |
+| `simple_visualizer.py` | Visualization support |
+
+The module descriptions above indicate their documented roles. The actual execution path and dependencies should be confirmed against the current source code.
+
+- The documented A/B testing architecture distinguishes the baseline control group from the ML-enhanced treatment group.
+- Numerical examples in the design document should not automatically be treated as independently validated experimental results.
+- Reported performance improvements should be interpreted according to the corresponding experimental setup and evaluation results.
